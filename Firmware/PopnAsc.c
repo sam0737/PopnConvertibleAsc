@@ -51,7 +51,8 @@
 #include <string.h>
 
 /// Button edge changes are ignored for how many milliseconds?
-#define DEBOUNCE_TIME 35
+#define DEBOUNCE_DOWN_TIME 20 
+#define DEBOUNCE_UP_TIME 5
 
 /// Current timestamp (millisecond)
 unsigned char timeMark;
@@ -65,18 +66,18 @@ unsigned short buttonDebounce;
 
 /** LUFA HID Class driver interface configuration and state information. */
 USB_ClassInfo_HID_Device_t Keyboard_HID_Interface =
- 	{
-		.Config =
-			{
-				.InterfaceNumber              = 0,
+    {
+        .Config =
+            {
+                .InterfaceNumber              = 0,
 
-				.ReportINEndpointNumber       = DEVICE_ENDPOINT_NUM,
-				.ReportINEndpointSize         = DEVICE_ENDPOINT_SIZE,
-				.ReportINEndpointDoubleBank   = false,
+                .ReportINEndpointNumber       = DEVICE_ENDPOINT_NUM,
+                .ReportINEndpointSize         = DEVICE_ENDPOINT_SIZE,
+                .ReportINEndpointDoubleBank   = false,
 
-				.PrevReportINBuffer           = NULL,
-				.PrevReportINBufferSize       = DEVICE_ENDPOINT_SIZE,
-			},
+                .PrevReportINBuffer           = NULL,
+                .PrevReportINBufferSize       = DEVICE_ENDPOINT_SIZE,
+            },
     };
 
 
@@ -89,135 +90,135 @@ void CalculateButtonState(void);
  */
 int main(void)
 {
-	init_hardware();
+    init_hardware();
 
-	sei();
+    sei();
 
-	for (;;)
-	{
+    for (;;)
+    {
         wdt_reset();
-		HID_Device_USBTask(&Keyboard_HID_Interface);
-		USB_USBTask();
-	}
+        HID_Device_USBTask(&Keyboard_HID_Interface);
+        USB_USBTask();
+    }
 }
 
 /** Configures the board hardware and chip peripherals for the demo's functionality. */
 void init_hardware(void)
 {
-  	// Turn on Watchdog
-	wdt_enable(WDTO_500MS);
+    // Turn on Watchdog
+    wdt_enable(WDTO_500MS);
 
-	// Disable clock prescaler
-	clock_prescale_set(clock_div_1);
+    // Disable clock prescaler
+    clock_prescale_set(clock_div_1);
 
-	// Initialize other driver
-	LEDs_Init();
-	Buttons_Init();
+    // Initialize other driver
+    LEDs_Init();
+    Buttons_Init();
     Popn_Buttons_Init();
-	USB_Init();
+    USB_Init();
 }
 
 /** Initialize Pop'n buttons */
 void Popn_Buttons_Init(void)
 {
     // Buttons are connected to PB0 to PB7 and PC7
-	DDRB  = 0;
-	PORTB = 0xFF;
-	
-	DDRC  &= ~_BV(7);
-	PORTC |=  _BV(7);
+    DDRB  = 0;
+    PORTB = 0xFF;
+    
+    DDRC  &= ~_BV(7);
+    PORTC |=  _BV(7);
 }
 
 /** Event handler for the library USB Connection event. */
 void EVENT_USB_Device_Connect(void)
 {
-	LEDs_TurnOffLEDs(LEDS_LED1);
+    LEDs_TurnOffLEDs(LEDS_LED1);
 }
 
 /** Event handler for the library USB Disconnection event. */
 void EVENT_USB_Device_Disconnect(void)
 {
-	LEDs_TurnOnLEDs(LEDS_LED1);
+    LEDs_TurnOnLEDs(LEDS_LED1);
 }
 
 /** Event handler for the library USB Configuration Changed event. */
 void EVENT_USB_Device_ConfigurationChanged(void)
 {
-	bool ConfigSuccess = true;
+    bool ConfigSuccess = true;
 
-	ConfigSuccess &= HID_Device_ConfigureEndpoints(&Keyboard_HID_Interface);
+    ConfigSuccess &= HID_Device_ConfigureEndpoints(&Keyboard_HID_Interface);
 
-	USB_Device_EnableSOFEvents();
+    USB_Device_EnableSOFEvents();
 
-	LEDs_TurnOnLEDs(LEDS_LED1);
+    LEDs_TurnOnLEDs(LEDS_LED1);
 }
 
 /** Event handler for the library USB Control Request reception event. */
 void EVENT_USB_Device_ControlRequest(void)
 {
-	HID_Device_ProcessControlRequest(&Keyboard_HID_Interface);
+    HID_Device_ProcessControlRequest(&Keyboard_HID_Interface);
 }
 
 /** Event handler for the USB device Start Of Frame event. */
 void EVENT_USB_Device_StartOfFrame(void)
 {
-	HID_Device_MillisecondElapsed(&Keyboard_HID_Interface);
+    HID_Device_MillisecondElapsed(&Keyboard_HID_Interface);
     CalculateButtonState();
 }
 
 void EVENT_USB_Device_Suspend()
 {
-	wdt_disable();
+    wdt_disable();
 }
 
 void EVENT_USB_Device_WakeUp()
 {
-	wdt_enable(WDTO_500MS);
+    wdt_enable(WDTO_500MS);
 }
 
 void CalculateButtonState(void)
 {
-	unsigned char i;	
-	unsigned short currentState;
-	short change;
-	
-	timeMark++;
-	
+    unsigned char i;    
+    unsigned short currentState;
+    unsigned short oldState = buttonState;
+    short change;
+    
+    timeMark++;
+    
     // If any debug button is presed
-	if (Buttons_GetStatus() != 0) 
-	{
-		// Assume all key down
-		currentState = (unsigned short) 0x01FF;
-	} else {
-		// Read actual push button 
+    if (Buttons_GetStatus() != 0) 
+    {
+        // Assume all key down
+        currentState = (unsigned short) 0x01FF;
+    } else {
+        // Read actual push button 
         // (Push button are active low, so remember to flip them)
-		currentState = (unsigned short) ~(((PINC & _BV(7)) << 1) | PINB);
-	}
-	
+        currentState = (unsigned short) ~(((PINC & _BV(7)) << 1) | PINB);
+    }
+    
     // Use old state if still in debounce interval, or else new state
-	buttonState = (buttonState & buttonDebounce) | (~buttonDebounce & currentState);
+    buttonState = (buttonState & buttonDebounce) | (~buttonDebounce & currentState);
 
     // Was the state changed?
-	change = buttonState ^ currentState;
-	
-	for (i = 0; i < 9; i++)
-	{
-		if (buttonDebounce & _BV(i))
-		{
+    change = buttonState ^ oldState;
+    
+    for (i = 0; i < 9; i++)
+    {
+        if (buttonDebounce & _BV(i))
+        {
             // Release debounce state if interval has passed
-			unsigned char diff = timeMark - lastTime[i];
-			if (diff > DEBOUNCE_TIME)
-			{
-				buttonDebounce &= ~_BV(i);
-			}
-		} else {
+            if (timeMark == lastTime[i])
+            {
+                buttonDebounce &= ~_BV(i);
+            }
+        } else {
             // If change, kick into debounce state
-			if (change & _BV(i)) {
-				lastTime[i] = timeMark;
-				buttonDebounce |= _BV(i);
-			}
-		}
-	}
+            if (change & _BV(i)) {
+                lastTime[i] = timeMark + (buttonState & _BV(i) ? DEBOUNCE_DOWN_TIME : DEBOUNCE_UP_TIME);
+                buttonDebounce |= _BV(i);
+            }
+        }
+    }
 }
 
 /** HID IN report */
@@ -231,7 +232,7 @@ bool CALLBACK_HID_Device_CreateHIDReport(USB_ClassInfo_HID_Device_t* const HIDIn
 
     *ReportSize = 2;
 
-	return true;
+    return true;
 }
 
 /** HID OUT report */
